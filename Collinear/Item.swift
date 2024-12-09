@@ -8,40 +8,87 @@
 import Foundation
 import SwiftData
 import SwiftUI
-@Model
-final class Level {
+
+final class Level{
     var nodes: [node]
     var lasers: [laser]
     var bounds: CGRect
     var anchors: [anchor]
     var stickyIntersections: [stickyIntersection]
-    init(nodes: [node], lasers: [laser], bounds: CGRect, anchors: [anchor], stickyIntersections: [stickyIntersection]){
+//    var levelCompletion: LevelCompletion?
+    //@Environment(\.modelContext) var modelContext
+//    var completed: Bool {
+//        get {
+//            return levelCompletion?.completed ?? false
+//        }
+//        set {
+//            if let completion = levelCompletion {
+//                completion.completed = newValue
+//            } else {
+//                // If there's no completion object yet, create and save it
+//                let newCompletion = LevelCompletion(levelId: UUID(), completed: newValue)
+//                levelCompletion = newCompletion
+//                saveLevelCompletion(completion: newCompletion)
+//            }
+//        }
+//    }
+    
+    init(nodes: [node], lasers: [laser], bounds: CGRect, anchors: [anchor], stickyIntersections: [stickyIntersection]/*, levelCompletion: LevelCompletion? = nil*/) {
         self.nodes = nodes
         self.lasers = lasers
         self.bounds = bounds
         self.anchors = anchors
         self.stickyIntersections = stickyIntersections
+//        self.levelCompletion = levelCompletion
     }
+//    func saveLevelCompletion(completion: LevelCompletion) {
+//        // Only save when necessary
+//        DispatchQueue.global(qos: .background).async {
+//            do {
+//                try self.modelContext.save() // Save in background thread
+//            } catch {
+//                print("Failed to save level completion: \(error)")
+//            }
+//        }
+//    }
 }
-@Model
-class nodeProtocol{
-    var position: CGPoint // Add this line
+
+//@Model
+//class LevelCompletion {
+//    var id: UUID  // Primary key for this entity
+//    var levelId: UUID  // Reference to the level this completion is associated with
+//     var completed: Bool  // The completion status of the level
+//    
+//    // Initializer for creating new LevelCompletion instances
+//    init(levelId: UUID, completed: Bool = false) {
+//        self.id = UUID()  // Generate a new UUID for the completion object
+//        self.levelId = levelId
+//        self.completed = completed
+//    }
+//}
+
+class nodeProtocol: Identifiable{
+    var position: CGPoint 
     var colour: String
+    var dead: CGFloat? = nil
+    func connectedLasers(_ allLasers: [laser]) -> [laser]{
+        return (allLasers.filter{$0.otherNode(self) != nil})
+    }
+    func disconnectedLasers(_ allLasers: [laser]) -> [laser]{
+        return (allLasers.filter{$0.otherNode(self) == nil})
+    }
     init(position: CGPoint, colour: String) {
         self.position = position // Add this line
         self.colour = colour
     }
+    func kill(){
+        dead = 0
+    }
 }
 class node: nodeProtocol{
     var target: CGPoint
-    private func connectedLasers(_ allLasers: [laser]) -> [laser]{
-        return (allLasers.filter{$0.otherNode(self) != nil})
-    }
-    private func disconnectedLasers(_ allLasers: [laser]) -> [laser]{
-        return (allLasers.filter{$0.otherNode(self) == nil})
-    }
     func checkDie(allLasers: inout [laser]) -> Bool{
-        let disconnectedLasers = disconnectedLasers(allLasers)
+        let disconnectedLasers = super.disconnectedLasers(allLasers)
         let ret = disconnectedLasers.map{$0.closestPoint(to: self).1 < 30}.reduce(false){ $0 || $1 }
 //        if(ret){
 //            for laser in connectedLasers(allLasers){
@@ -58,6 +105,9 @@ class node: nodeProtocol{
         let backingData = backingData as! node
         self.target = backingData.target
         super.init(position: backingData.position, colour: backingData.colour)
+    }
+    func checkDead(){
+        
     }
 }
 class anchor: nodeProtocol{
@@ -113,7 +163,6 @@ class stickyIntersection: nodeProtocol{
         super.init(position: backingData.position, colour: "IntersectionGreen")
     }
 }
-@Model
 class laser: Identifiable{
     var id: UUID
     var p1: nodeProtocol
@@ -151,7 +200,7 @@ class laser: Identifiable{
                             )
                         }
                     } else{
-                        if(closestPoint(to: tnode).1 > 60){
+                        if(closestPoint(to: tnode).1 > 30){
                             let it = Int(240 / closestPoint(to: tnode).1)
                             for i in 0...it{
                                 returner.append(LaserBleed(
@@ -262,4 +311,3 @@ extension laser{
         return atan(Double((p1.position.y - p2.position.y) / (p1.position.x - p2.position.x)))
     }
 }
-

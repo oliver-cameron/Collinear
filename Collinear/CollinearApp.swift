@@ -10,21 +10,6 @@ import SwiftData
 
 @main
 struct CollinearApp: App {
-//
-//    var newModelContainer: ModelContainer = {
-//        let schema = Schema([
-//            Level.self,
-//            nodeProtocol.self,
-//            laser.self
-//        ])
-//        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-//        
-//        do {
-//            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-//        } catch {
-//            fatalError("Could not create ModelContainer: \(error)")
-//        }
-//    }()
 
     var body: some Scene {
         WindowGroup {
@@ -54,6 +39,6 @@ struct CollinearApp: App {
                 return Level(nodes: nodes, lasers: lasers, bounds: CGRect(x: 0, y: 0, width: 1600, height: 900), anchors: anchors, stickyIntersections: stickyIntersections)
             }
         }
-//        .modelContainer(newModelContainer)
+//        .modelContainer(for: LevelCompletion.self)
     }
 }

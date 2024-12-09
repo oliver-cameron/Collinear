@@ -10,22 +10,25 @@ import SwiftData
 import AVKit
 struct ContentView: View {
     init(_ clevel: @escaping () -> Level) {
-        level = clevel()
+        let level = clevel()
+        nodes = clevel().nodes
+        lasers = clevel().lasers
+        levelBounds = level.bounds
+        stickyIntersections = level.stickyIntersections
+        anchors = level.anchors
     }
-    @State private var level: Level
-    @State private var isShaking = true // State to trigger screen shake
-    
+    @State private var isShaking: Bool = false // State to trigger screen shake
+    @State private var nodes: [node]
+    @State private var lasers: [laser]
+    @State private var stickyIntersections: [stickyIntersection]
+    @State private var anchors: [anchor]
+    let levelBounds: CGRect
     var body: some View {
         
         ZStack {
             Rectangle()
                 .fill(Color.black.mix(with: Color.white, by: 0.2))
                 .ignoresSafeArea()
-            let levelBounds = level.bounds
-            let lasers: [laser] = level.lasers
-            let nodes: [node] = level.nodes
-            let anchors = level.anchors
-            let stickyIntersections = level.stickyIntersections
             VStack{
                 GeometryReader { geometry in
                     let pos = geometry.frame(in: .local).origin
@@ -39,13 +42,15 @@ struct ContentView: View {
                                 .foregroundColor(.black)
                             
                             // Lasers (Laser path + node bleeds)
-                            laserViews(lasers: lasers, nodes: nodes, pos: pos, scalar: scalar)
+                            laserViews(scalar: scalar, pos: pos, lasers: $lasers, nodes: $nodes)
                             
                             // Sticky Intersections
-                            stickyIntersectionViews(stickyIntersections: stickyIntersections, pos: pos, scalar: scalar)
+                            stickyIntersectionViews(pos: pos, scalar: scalar)
                             
                             // Nodes
-                            nodeViews(nodes: nodes, pos: pos, scalar: scalar)
+                            nodeViews(scalar: scalar, pos: pos, levelBounds: levelBounds, nodes: $nodes, lasers: $lasers, updateNodes: {
+                                updateNodes()
+                            })
                             
                             // Anchors
                             anchorViews(anchors: anchors, pos: pos, scalar: scalar)
@@ -53,8 +58,7 @@ struct ContentView: View {
                     }
                     .frame(idealWidth: levelBounds.width, idealHeight: levelBounds.height)
                     .scaledToFit()
-                    .screenShake(ison: $isShaking, duration: 1)
-                    .animation(.easeInOut(duration: 0.1), value: isShaking)
+//                    .screenShake(ison: $isShaking, duration: 1)
                 }
             }
             .padding()
@@ -62,45 +66,9 @@ struct ContentView: View {
     }
     private func updateNodes() {
     }
-    
-    private func laserViews(lasers: [laser], nodes: [node], pos: CGPoint, scalar: CGFloat) -> some View {
-        ForEach(lasers, id: \.id) { laser in
-            ZStack {
-                let p1 = laser.p1.position * scalar + pos
-                let p2 = laser.p2.position * scalar + pos
-                let nodeBleeds: [LaserBleed] = laser.nodeBleed(nodes)
-                // Laser line path (including glow)
-                Path { path in
-                    path.move(to: p1)
-                    path.addLine(to: p2)
-                }
-                .stroke(.white, style: .init(lineWidth: 10 * scalar, lineCap: .round))
-                .stroke(.white.opacity(0.5), style: .init(lineWidth: 20 * scalar, lineCap: .round))
-                .shadow(color: .white, radius: 50)
-                .compositingGroup()
-                .zIndex(0) // Ensure it's behind any bleeds, if needed
-                
-                // Node Bleeds (rendered above laser lines)
-                ForEach(nodeBleeds, id: \.id) { bleed in
-                    let start = bleed.position1 * scalar + pos
-                    let end = bleed.position2 * scalar + pos
-                    let color = bleed.colour
-                    
-                    Path { path in
-                        path.move(to: start)
-                        path.addLine(to: end)
-                    }
-                    .stroke(color, style: .init(lineWidth: 20 * scalar, lineCap: .butt))
-                    .blendMode(.multiply)
-                    .compositingGroup() // Ensure bleed doesn't affect others
-                    .zIndex(1) // Make sure bleeds are above the laser path
-                }
-            }
-        }
-    } 
-    private func stickyIntersectionViews(stickyIntersections: [stickyIntersection], pos: CGPoint, scalar: CGFloat) -> some View {
-        ForEach(level.stickyIntersections, id: \.id) { intersection in
-            let disCenter: CGFloat = 50
+    private func stickyIntersectionViews(pos: CGPoint, scalar: CGFloat) -> some View {
+        ForEach(stickyIntersections) { intersection in
+            let disCenter: CGFloat = 75
             let center: CGPoint = (intersection.position + pos) * scalar
             let o1 = CGPoint(x: CGFloat(cos(intersection.laser1.slope())) * disCenter, y: CGFloat(sin(intersection.laser1.slope())) * disCenter)*scalar
             let o2 = CGPoint(x: CGFloat(cos(intersection.laser2.slope())) * disCenter, y: CGFloat(sin(intersection.laser2.slope())) * disCenter)*scalar
@@ -123,54 +91,19 @@ struct ContentView: View {
                 path.closeSubpath()
             }
             .fill(Color("IntersectionGreen"))
-            .stroke(Color("IntersectionGreen") ,style: StrokeStyle(lineWidth: 30 * scalar, lineCap: .round, lineJoin: .round))
+            .stroke(Color("IntersectionGreen") ,style: StrokeStyle(lineWidth: 45 * scalar, lineCap: .round, lineJoin: .round))
             Circle()
-                .frame(width: 40 * scalar, height: 40 * scalar)
+                .frame(width: 60 * scalar, height: 60 * scalar)
                 .foregroundStyle(.white.opacity(0.5))
                 .position(center)
         }
     }
     
-    private func nodeViews(nodes: [node], pos: CGPoint, scalar: CGFloat) -> some View {
-        ForEach(nodes) { node in
-            let nodeColor = Color(node.colour)
-            let nodeTarget = node.target * scalar + pos
-            let nodePosition = node.position * scalar + pos
-            
-            Hexagon()
-                .fill(nodeColor)
-                .frame(width: 40 * scalar, height: 40 * scalar)
-                .position((nodeTarget + pos) * scalar)
-            
-            ZStack {
-                Circle()
-                    .frame(width: 40 * scalar, height: 40 * scalar)
-                    .foregroundColor(nodeColor)
-                
-                StrokeShapeView(shape: .circle, style: .white, strokeStyle: .init(lineWidth: 4 * scalar), isAntialiased: true, background: EmptyView())
-                    .frame(width: 24 * scalar, height: 24 * scalar)
-            }
-            .position(nodePosition)
-            .gesture(DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    let newPosition = (value.location - pos) / scalar
-                    
-                    if newPosition.isWithin(bounds: level.bounds) {
-                        node.position = newPosition
-                    }
-                    for node in nodes {
-                        if node.checkDie(allLasers: &level.lasers) {
-                            // Handle node death (if applicable)
-                        }
-                    }
-                })
-        }
-    }
     
     private func anchorViews(anchors: [anchor], pos: CGPoint, scalar: CGFloat) -> some View {
         ForEach(anchors, id: \.id) { anchor in
             Circle()
-                .frame(width: 30 * scalar, height: 30 * scalar)
+                .frame(width: 50 * scalar, height: 50 * scalar)
                 .foregroundColor(.white)
                 .position(anchor.position * scalar + pos)
         }
@@ -179,7 +112,7 @@ struct ContentView: View {
 
 #Preview {
     ContentView {
-        var nodes: [node] = [
+        let nodes: [node] = [
             node(position: .init(x: 30, y: 500), target: .init(x: 350, y: 60), colour: "NodeRed"),
             node(position: .init(x: 700, y: 200), target: .init(x: 50, y: 800), colour: "NodeYellow"),
             node(position: .init(x: 30, y: 200), target: .init(x: 200, y: 700), colour: "NodeOrange"),
@@ -255,62 +188,58 @@ struct Hexagon: Shape {
         return points
     }
 }
-struct ScreenShake: ViewModifier {
-    @State private var offsetX: CGFloat = 0  // Horizontal offset
-    @State private var offsetY: CGFloat = 0  // Vertical offset
-    @State private var shakeTimer: Timer? // Timer to periodically update the shake offsets
-    @State private var shakeEndTimer: Timer?  // Timer to stop the shake after duration
-    @Binding var isOn: Bool
-    @State private var shakeIntensity: CGFloat = 5
-    let duration: Double
-    func body(content: Content) -> some View {
-        content
-            .offset(x: offsetX, y: offsetY) // Apply both X and Y offsets
-            .onChange(of: isOn, initial: false){o,n in
-                if o {
-                    startShake()
-                } else {
-                    stopShake()
-                }
-            }
-            .onAppear {
-                startShake()
-                
-                // Stop the shake after the duration
-                shakeEndTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { _ in
-                    stopShake()  // Stop shake after duration
-                }
-            }
-            .onDisappear {
-                // Invalidate the timer when the view disappears
-                stopShake()
-            }
-            .animation(.easeInOut(duration: 0.1), value: shakeIntensity)
-    }
-    
-    // Method to start shaking and periodically change the shake direction
-    func startShake() {
-        // Start a timer that will update the shake offset periodically
-        shakeTimer = Timer.scheduledTimer(withTimeInterval: 0.001, repeats: true) { _ in
-            // Randomly generate new offsets
-            offsetX = CGFloat.random(in: -shakeIntensity...shakeIntensity)
-            offsetY = CGFloat.random(in: -shakeIntensity...shakeIntensity)
-        }
-    }
-    
-    // Method to stop shaking
-    func stopShake() {
-        isOn = false
-        shakeIntensity = 0
-    }
-}
-
-
-extension View {
-    func screenShake(ison: Binding<Bool>, duration: Double = 1) -> some View {
-        self.modifier(ScreenShake(isOn: ison, duration: duration))
-    }
-}
+//struct ScreenShake: ViewModifier {
+//    @State private var offsetX: CGFloat = 0  // Horizontal offset
+//    @State private var offsetY: CGFloat = 0  // Vertical offset
+//    @State private var shakeTimer: Timer? // Timer to periodically update the shake offsets
+//    @State private var shakeEndTimer: Timer?  // Timer to stop the shake after duration
+//    @Binding var isOn: Bool
+//    @State private var shakeIntensity: CGFloat = 5
+//    let duration: Double
+//    func body(content: Content) -> some View {
+//        content
+//            .offset(x: offsetX, y: offsetY) // Apply both X and Y offsets
+//            .onChange(of: isOn, initial: false){o,n in
+//                if o {
+//                    startShake()
+//                    shakeEndTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { _ in
+//                        stopShake()  // Stop shake after duration
+//                    }
+//                    
+//                } else {
+//                    stopShake()
+//                }
+//            }
+//            .onDisappear {
+//                // Invalidate the timer when the view disappears
+//                stopShake()
+//            }
+//            .animation(.easeInOut(duration: 0.1), value: shakeIntensity)
+//    }
+//    
+//    // Method to start shaking and periodically change the shake direction
+//    func startShake() {
+//        // Start a timer that will update the shake offset periodically
+//        shakeTimer = Timer.scheduledTimer(withTimeInterval: 0.001, repeats: true) { _ in
+//            // Randomly generate new offsets
+//            offsetX = CGFloat.random(in: -shakeIntensity...shakeIntensity)
+//            offsetY = CGFloat.random(in: -shakeIntensity...shakeIntensity)
+//        }
+//    }
+//    
+//    // Method to stop shaking
+//    func stopShake() {
+//        isOn = false
+//        shakeIntensity = 0
+//    }
+//}
+//
+//
+//extension View {
+//    func screenShake(ison: Binding<Bool>, duration: Double = 1) -> some View {
+//        self.modifier(ScreenShake(isOn: ison, duration: duration))
+//    }
+//}
 func yIntercept(slope: CGFloat, point: CGPoint) -> CGFloat{
     return -slope * point.x + point.y
 }
